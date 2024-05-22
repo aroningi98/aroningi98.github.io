@@ -1,0 +1,186 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Simple ArcGIS JavaScript API Map with Feature Layer Query</title>
+  <link rel="stylesheet" href="https://js.arcgis.com/4.24/esri/themes/light/main.css">
+  <script src="https://d3js.org/d3.v6.min.js"></script>
+  <script src="https://js.arcgis.com/4.24/"></script>
+  <style>
+    html, body {
+      padding: 0;
+      margin: 0;
+      height: 100%;
+      width: 100%;
+    }
+    #viewDiv {
+      height: 60%;
+      width: 100%;
+    }
+    #chartDiv {
+      height: 40%;
+      width: 100%;
+    }
+    .chart {
+      display: block;
+      margin: auto;
+    }
+  </style>
+</head>
+<body>
+  <div id="viewDiv"></div>
+  <div id="chartDiv"></div>
+  <script>
+    require([
+      "esri/Map",
+      "esri/views/MapView",
+      "esri/Graphic",
+      "esri/layers/GraphicsLayer",
+      "esri/layers/FeatureLayer",
+      "esri/rest/support/Query"
+    ], function(Map, MapView, Graphic, GraphicsLayer, FeatureLayer, Query) {
+
+      // Create the map
+      var map = new Map({
+        basemap: "streets-navigation-vector"
+      });
+
+      // Create the MapView
+      var view = new MapView({
+        container: "viewDiv",
+        map: map,
+        center: [-19.0208, 64.9631], // Longitude, latitude of Iceland
+        zoom: 5
+      });
+
+      // Create a graphics layer and add it to the map
+      var graphicsLayer = new GraphicsLayer();
+      map.add(graphicsLayer);
+
+      // Define a simple marker symbol
+      var markerSymbol = {
+        type: "simple-marker",
+        color: [226, 119, 40],  // Orange
+        outline: {
+          color: [255, 255, 255], // White
+          width: 2
+        }
+      };
+
+      // Create the FeatureLayer from the URL
+      var featureLayerMap = new FeatureLayer({
+        url: "https://services2.arcgis.com/rmrALMmpPh0iZNsU/arcgis/rest/services/Hitaveita_sensor_positions_view/FeatureServer/0",
+        outFields: ["*"], // Retrieve all fields,
+        popupTemplate: {  // Enable popups
+          title: "{device_name}",
+          content: "<p>Time Date: {time_date}</p><p>Pressure: {data_m2_pressure}</p>"
+        }
+      });
+
+      var featureLayer = new FeatureLayer({
+        url: "https://services2.arcgis.com/rmrALMmpPh0iZNsU/ArcGIS/rest/services/Layer_1_view/FeatureServer/0",
+        outFields: ["*"], // Retrieve all fields,
+        // popupTemplate: {  // Enable popups
+        //   title: "{device_name}",
+        //   content: "<p>Time Date: {time_date}</p><p>Pressure: {data_m1_pressure}</p>"
+        // }
+      });
+    
+      // Add the FeatureLayer to the map
+      map.add(featureLayerMap);
+
+      // Perform a query on the FeatureLayer
+      view.when(function() {
+        var query = featureLayer.createQuery();
+        query.where = "1=1"; // Query all features
+        query.outFields = ["time_date", "data_m1_pressure", "device_name"]; // Retrieve specific fields
+        query.returnGeometry = true;
+
+        featureLayer.queryFeatures(query)
+          .then(function(result) {
+            var features = result.features;
+            var data = {};
+
+            features.forEach(function(feature) {
+              var attributes = feature.attributes;
+              var deviceName = attributes.device_name;
+              var timeDate = new Date(attributes.time_date); // Convert to Date object
+              var pressure = attributes.data_m1_pressure;
+
+              // Ignore data before 2024
+              if (timeDate.getFullYear() < 2024) {
+                return;
+              }
+
+              if (!data[deviceName]) {
+                data[deviceName] = [];
+              }
+
+              data[deviceName].push({ date: timeDate, value: pressure });
+            });
+
+            // Store the data globally
+            window.deviceData = data;
+
+            // Handle point selection
+            view.on("click", function(event) {
+              view.hitTest(event).then(function(response) {
+                var results = response.results;
+                if (results.length > 0 && results[0].graphic) {
+                  var deviceName = results[0].graphic.attributes.device_name;
+                  updateChart(deviceName);
+                }
+              });
+            });
+          })
+          .catch(function(error) {
+            console.error("Query failed: ", error);
+          });
+      });
+
+      function updateChart(deviceName) {
+        var data = window.deviceData[deviceName] || [];
+        var chartDiv = document.getElementById("chartDiv");
+        chartDiv.innerHTML = ""; // Clear previous chart
+
+        var width = chartDiv.clientWidth;
+        var height = chartDiv.clientHeight;
+
+        var svg = d3.select("#chartDiv").append("svg")
+          .attr("width", width)
+          .attr("height", height)
+          .classed("chart", true);
+
+        var margin = {top: 20, right: 30, bottom: 30, left: 40},
+            innerWidth = width - margin.left - margin.right,
+            innerHeight = height - margin.top - margin.bottom;
+
+        var x = d3.scaleTime().range([margin.left, innerWidth - margin.right]);
+        var y = d3.scaleLinear().range([innerHeight - margin.bottom, margin.top]);
+
+        var line = d3.line()
+          .x(d => x(d.date))
+          .y(d => y(d.value));
+
+        x.domain(d3.extent(data, d => d.date));
+        y.domain([0, d3.max(data, d => d.value)]);
+
+        svg.append("g")
+          .attr("transform", `translate(0,${innerHeight - margin.bottom})`)
+          .call(d3.axisBottom(x).ticks(width / 80).tickSizeOuter(0));
+
+        svg.append("g")
+          .attr("transform", `translate(${margin.left},0)`)
+          .call(d3.axisLeft(y));
+
+        svg.append("path")
+          .datum(data)
+          .attr("fill", "none")
+          .attr("stroke", "steelblue")
+          .attr("stroke-width", 1.5)
+          .attr("d", line);
+      }
+    });
+  </script>
+</body>
+</html>
