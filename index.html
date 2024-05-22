@@ -20,10 +20,20 @@
     #chartDiv {
       height: 40%;
       width: 100%;
+      position: relative;
     }
     .chart {
       display: block;
       margin: auto;
+    }
+    .tooltip {
+      position: absolute;
+      background-color: white;
+      border: 1px solid #d3d3d3;
+      padding: 5px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
     }
   </style>
 </head>
@@ -37,8 +47,9 @@
       "esri/Graphic",
       "esri/layers/GraphicsLayer",
       "esri/layers/FeatureLayer",
-      "esri/rest/support/Query"
-    ], function(Map, MapView, Graphic, GraphicsLayer, FeatureLayer, Query) {
+      "esri/rest/support/Query",
+      "esri/layers/support/LabelClass"
+    ], function(Map, MapView, Graphic, GraphicsLayer, FeatureLayer, Query, LabelClass) {
 
       // Create the map
       var map = new Map({
@@ -67,12 +78,30 @@
         }
       };
 
-      // Create the FeatureLayer from the URL
+      // Define the label class for the feature layer
+      var labelClass = new LabelClass({
+        // labelExpressionInfo: { expression: "$feature.device_name" },
+        labelExpressionInfo: { expression: "$feature.data_m2_pressure" },
+        symbol: {
+          type: "text", // autocasts as new TextSymbol()
+          color: "black",
+          haloColor: "white",
+          haloSize: "1px",
+          font: { // autocast as new Font()
+            family: "Arial",
+            size: 10,
+            weight: "bold"
+          }
+        }
+      });
+
+      // Create the FeatureLayer from the URL with labeling info
       var featureLayerMap = new FeatureLayer({
         url: "https://services2.arcgis.com/rmrALMmpPh0iZNsU/arcgis/rest/services/Hitaveita_sensor_positions_view/FeatureServer/0",
         outFields: ["*"], // Retrieve all fields,
+        labelingInfo: [labelClass], // Add the label class to the feature layer
         popupTemplate: {  // Enable popups
-          title: "{device_name}",
+          title: "<p>Time Date: {device_name}</p><p>Pressure: {data_m2_pressure}</p>",
           content: "<p>Time Date: {time_date}</p><p>Pressure: {data_m2_pressure}</p>"
         }
       });
@@ -80,12 +109,8 @@
       var featureLayer = new FeatureLayer({
         url: "https://services2.arcgis.com/rmrALMmpPh0iZNsU/ArcGIS/rest/services/Layer_1_view/FeatureServer/0",
         outFields: ["*"], // Retrieve all fields,
-        // popupTemplate: {  // Enable popups
-        //   title: "{device_name}",
-        //   content: "<p>Time Date: {time_date}</p><p>Pressure: {data_m1_pressure}</p>"
-        // }
       });
-    
+
       // Add the FeatureLayer to the map
       map.add(featureLayerMap);
 
@@ -179,6 +204,41 @@
           .attr("stroke", "steelblue")
           .attr("stroke-width", 1.5)
           .attr("d", line);
+
+        var tooltip = d3.select("#chartDiv").append("div")
+          .attr("class", "tooltip");
+
+        svg.selectAll("circle")
+          .data(data)
+          .enter().append("circle")
+          .attr("r", 5)
+          .attr("cx", d => x(d.date))
+          .attr("cy", d => y(d.value))
+          .attr("fill", "steelblue")
+          .on("mouseover", function(event, d) {
+            tooltip.transition()
+              .duration(200)
+              .style("opacity", .9);
+            tooltip.html("Date: " + d.date.toLocaleDateString() + "<br/>Pressure: " + d.value);
+          })
+          .on("mousemove", function(event) {
+            var tooltipWidth = tooltip.node().offsetWidth;
+            var tooltipHeight = tooltip.node().offsetHeight;
+            var chartDivWidth = chartDiv.clientWidth;
+
+            var leftPosition = event.pageX + 15;
+            if (leftPosition + tooltipWidth > chartDivWidth) {
+              leftPosition = event.pageX - tooltipWidth - 15;
+            }
+
+            tooltip.style("left", leftPosition + "px")
+                   .style("top", (event.pageY - tooltipHeight - 350) + "px");
+          })
+          .on("mouseout", function() {
+            tooltip.transition()
+              .duration(500)
+              .style("opacity", 0);
+          });
       }
     });
   </script>
